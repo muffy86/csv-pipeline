@@ -1,0 +1,16 @@
+# CSV Pipeline — Docker Compose
+version: '3.8'
+
+services:
+  pipeline:
+    build: .
+    container_name: csv-pipeline
+    volumes:
+      - ./incoming:/app/incoming
+      - ./processed:/app/processed
+      - ./archive:/app/archive
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PIPELINE_INTERVAL=10
+    command: python pipeline.py --watch --interval 10
+    restart: unless-stopped

@@ -1,0 +1,29 @@
+{
+    "Name": "CSV Data Processing Pipeline",
+    "Description": "Ingests CSV files, validates, transforms, and exports to multiple formats",
+    "StopOnError": true,
+    "Steps": [
+        {
+            "Name": "Ingest",
+            "Command": "$data = Import-Csv -Path $inputFile",
+            "OutputVariable": "data",
+            "Description": "Read raw CSV data"
+        },
+        {
+            "Name": "Validate",
+            "Command": "Write-Host \"Validating $($data.Count) rows...\"",
+            "Description": "Check data quality"
+        },
+        {
+            "Name": "Transform",
+            "Command": "$transformed = $data | Select-Object *, @{N='processed_at';E={Get-Date}}",
+            "OutputVariable": "transformed",
+            "Description": "Normalize and enrich data"
+        },
+        {
+            "Name": "Export",
+            "Command": "$transformed | Export-Csv -Path $outputPath -NoTypeInformation",
+            "Description": "Write processed data"
+        }
+    ]
+}
