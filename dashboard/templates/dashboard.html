@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Pipeline Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { theme: { extend: { colors: { primary: '#1a1a2e', accent: '#e94560' } } } }
+    </script>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans">
+    <div class="max-w-6xl mx-auto p-6">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-cyan-400">CSV Pipeline</h1>
+            <p class="text-gray-400 mt-1">Real-time data processing dashboard</p>
+        </header>
+
+        <div class="grid grid-cols-4 gap-4 mb-8">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Incoming</p>
+                <p class="text-3xl font-bold text-yellow-400">{{ stats.incoming }}</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Processed</p>
+                <p class="text-3xl font-bold text-green-400">{{ stats.processed }}</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Archived</p>
+                <p class="text-3xl font-bold text-blue-400">{{ stats.archived }}</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total</p>
+                <p class="text-3xl font-bold text-purple-400">{{ stats.total }}</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 class="text-lg font-semibold text-yellow-400 mb-3">Incoming</h2>
+                <ul class="space-y-1">
+                    {% for f in incoming %}
+                    <li class="text-gray-300 text-sm flex justify-between">
+                        <span>{{ f }}</span>
+                        <span class="text-yellow-500">waiting</span>
+                    </li>
+                    {% else %}
+                    <li class="text-gray-500 text-sm">No files waiting</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 class="text-lg font-semibold text-green-400 mb-3">Processed</h2>
+                <ul class="space-y-1">
+                    {% for f in processed %}
+                    <li class="text-gray-300 text-sm">{{ f }}</li>
+                    {% else %}
+                    <li class="text-gray-500 text-sm">No files processed yet</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="mt-8 bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <h2 class="text-lg font-semibold text-cyan-400 mb-3">Upload CSV</h2>
+            <form id="uploadForm" class="flex gap-3">
+                <input type="file" id="csvFile" accept=".csv" required
+                    class="flex-1 bg-gray-700 rounded px-3 py-2 text-sm text-gray-200 border border-gray-600 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-cyan-600 file:text-white file:text-sm hover:file:bg-cyan-500">
+                <button type="submit"
+                    class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm font-medium">
+                    Upload
+                </button>
+            </form>
+            <p id="uploadStatus" class="mt-2 text-sm text-gray-400"></p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = document.getElementById('csvFile').files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            const status = document.getElementById('uploadStatus');
+            status.textContent = 'Uploading...';
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                status.textContent = 'Uploaded: ' + data.filename;
+                setTimeout(() => location.reload(), 1000);
+            } catch (err) {
+                status.textContent = 'Error: ' + err;
+            }
+        });
+    </script>
+</body>
+</html>
