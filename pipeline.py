@@ -4,6 +4,7 @@ import sys
 import csv
 import json
 import time
+import shutil
 import hashlib
 import logging
 import argparse
@@ -19,11 +20,14 @@ WATCH_INTERVAL = int(os.getenv("PIPELINE_INTERVAL", "10"))
 REDIS_URL = os.getenv("REDIS_URL", "")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
 
-# Logging
+# Logging — stdout only; Docker's json-file driver handles capture + rotation.
+# (A FileHandler inside the container writes to the container layer and is
+#  both lossy across restarts and unbounded, so it is deliberately omitted.)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("pipeline.log")],
+    handlers=[logging.StreamHandler()],
+    force=True,
 )
 log = logging.getLogger("pipeline")
 
@@ -54,7 +58,7 @@ def stage_validate(df):
 def stage_transform(df, source_file):
     """Clean and transform data."""
     original_count = len(df)
-    for col in df.select_dtypes(include="object").columns:
+    for col in df.select_dtypes(include=["object", "str"]).columns:
         df[col] = df[col].str.strip()
     df = df.dropna(how="all")
     df = df.drop_duplicates()
@@ -82,7 +86,7 @@ def stage_aggregate(df):
             "mean": round(float(df[col].mean()), 2),
             "median": round(float(df[col].median()), 2),
         }
-    for col in df.select_dtypes(include="object").columns[:3]:
+    for col in df.select_dtypes(include=["object", "str"]).columns[:3]:
         counts = df[col].value_counts().head(5).to_dict()
         report["value_counts"][col] = {str(k): int(v) for k, v in counts.items()}
     log.info(f"Aggregation complete for {len(df)} rows x {len(df.columns)} cols")
@@ -155,7 +159,10 @@ def run_pipeline(file_path, output_dir, archive_dir):
     report = stage_aggregate(df)
     export_path = stage_export(df, output_dir, file_path, issues, report, original_rows)
     os.makedirs(archive_dir, exist_ok=True)
-    os.rename(file_path, os.path.join(archive_dir, file_name))
+    # NOTE: use shutil.move, NOT os.rename — incoming/ and archive/ are
+    # separate bind mounts (different devices), and os.rename raises
+    # OSError [Errno 18] Invalid cross-device link across devices.
+    shutil.move(str(file_path), os.path.join(archive_dir, file_name))
     log.info(f"Archived: {file_name}")
     summary = {"original_rows": original_rows, "final_rows": len(df), "removed": original_rows - len(df), "issues": len(issues)}
     stage_notify(file_name, "success", summary, issues, report)
@@ -192,10 +199,23 @@ if __name__ == "__main__":
         log.info(f"Watching {incoming} every {args.interval}s...")
         seen = set()
         while True:
+            # Forget names that have left incoming/ (i.e. archived OK) so a
+            # file re-dropped later under the same name is processed again.
+            seen &= {p.name for p in incoming.glob("*.csv")}
             for f in sorted(incoming.glob("*.csv")):
-                if f.name not in seen:
+                if f.name in seen:
+                    continue
+                try:
                     run_pipeline(str(f), str(processed), str(archive))
-                    seen.add(f.name)
+                except Exception:
+                    # Never let one bad file kill the watcher. An unhandled
+                    # exception here previously crashed the process, so the
+                    # container restart-looped and re-processed the same file
+                    # on every boot (duplicate outputs).
+                    log.exception(
+                        f"Pipeline failed for {f.name}; leaving it in incoming/ for review"
+                    )
+                seen.add(f.name)
             time.sleep(args.interval)
     for f in args.files:
         run_pipeline(f, str(processed), str(archive))

@@ -18,7 +18,23 @@ import uvicorn
 
 app = FastAPI(title="CSV Pipeline Dashboard", version="1.0.0")
 
-BASE_DIR = Path(__file__).parent.parent
+# Data directories.
+# The dashboard image does `COPY . .` into /app, so this file lands at
+# /app/main.py — meaning Path(__file__).parent.parent would resolve to "/",
+# NOT the data dir. The pipeline's dirs are bind-mounted at /app/{incoming,
+# processed}, so resolve the data dir explicitly:
+#   1) DATA_DIR env var, if set
+#   2) /app layout when <self-dir>/incoming exists (container)
+#   3) parent dir (running from the repo, e.g. <repo>/dashboard/main.py)
+_APP_DIR = Path(__file__).resolve().parent
+_ENV_DATA_DIR = os.environ.get("DATA_DIR")
+if _ENV_DATA_DIR:
+    BASE_DIR = Path(_ENV_DATA_DIR)
+elif (_APP_DIR / "incoming").exists():
+    BASE_DIR = _APP_DIR
+else:
+    BASE_DIR = _APP_DIR.parent
+
 INCOMING = BASE_DIR / "incoming"
 PROCESSED = BASE_DIR / "processed"
 ARCHIVE = BASE_DIR / "archive"
@@ -70,9 +86,12 @@ async def api_stats():
     """JSON stats endpoint for real-time monitoring."""
     incoming_files = list(INCOMING.glob("*.csv")) if INCOMING.exists() else []
     processed_files = list(PROCESSED.glob("*")) if PROCESSED.exists() else []
+    archive_files = list(ARCHIVE.glob("*.csv")) if ARCHIVE.exists() else []
     return {
         "incoming": len(incoming_files),
         "processed": len(processed_files),
+        "archived": len(archive_files),
+        "data_dir": str(BASE_DIR),
         "timestamp": datetime.now().isoformat(),
     }
 
