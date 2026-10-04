@@ -1,0 +1,50 @@
+#!/bin/sh
+# ===============================================================
+#  pre-commit — block secrets / credential files from commits
+#  Installed via: git config core.hooksPath .githooks
+#  Emergency bypass: git commit --no-verify
+# ===============================================================
+
+fail=0
+
+staged=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
+
+# --- 1) path denylist ------------------------------------------------
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  case "$p" in
+    .env|.env.*|*/.env|*/.env.*)
+      echo "pre-commit BLOCKED (env file): $p" >&2; fail=1 ;;
+    *.pgpass|*/.pgpass)
+      echo "pre-commit BLOCKED (pgpass): $p" >&2; fail=1 ;;
+    *.pem|*.key|*.pfx|*.p12|*.jks|*.keystore)
+      echo "pre-commit BLOCKED (key material): $p" >&2; fail=1 ;;
+    id_rsa|id_dsa|id_ecdsa|id_ed25519|*/id_rsa|*/id_ed25519)
+      echo "pre-commit BLOCKED (ssh key): $p" >&2; fail=1 ;;
+    *secret*|*credential*|*password*)
+      case "$p" in
+        *.md|*.example|*.sample|*.template) : ;;   # allow docs / samples
+        *) echo "pre-commit BLOCKED (suspicious filename): $p" >&2; fail=1 ;;
+      esac ;;
+  esac
+done <<EOF
+$staged
+EOF
+
+# --- 2) content denylist (high-confidence patterns) ------------------
+# NOTE: patterns are written so the hook's own source can never match
+# them (e.g. PEM markers are anchored on the literal 5-dash fence).
+diff=$(git diff --cached -U0 --diff-filter=ACM 2>/dev/null || true)
+pattern='-{5}BEGIN [A-Z ]+PRIVATE KEY-{5}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}'
+if printf '%s\n' "$diff" | grep -qE -e "$pattern"; then
+  echo "pre-commit BLOCKED: private key or API token pattern in staged changes" >&2
+  fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "" >&2
+  echo "Commit aborted by .githooks/pre-commit." >&2
+  echo "Unstage the secret and ROTATE it. Bypass only with --no-verify." >&2
+  exit 1
+fi
+exit 0
