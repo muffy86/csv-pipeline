@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+__pycache__
+.pytest_cache
+.coverage
+*.pyc
+*.md
+archive
+incoming
+processed
+tests
